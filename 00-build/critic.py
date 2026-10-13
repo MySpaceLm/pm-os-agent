@@ -10,22 +10,39 @@ import json
 from prompts import CRITIC_SYSTEM
 
 
-def review(client, model: str, proposed_output: str, source_data: str) -> dict:
-    """Return {"verdict": "pass"|"fail", "reasons": [...]} for a proposed output."""
-    resp = client.chat.completions.create(
-        model=model,
+VERDICT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "string", "enum": ["pass", "fail"]},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["verdict", "reasons"],
+    "additionalProperties": False,
+}
+
+
+def review(client, call_model, proposed_output: str, source_data: str) -> dict:
+    """Return {"verdict": "pass"|"fail", "reasons": [...]} for a proposed output.
+
+    `call_model(client, **kwargs)` is the same model call Cortex uses (agent.py), so
+    the critic runs on the same model and settings but in a fresh conversation.
+    """
+    resp = call_model(
+        client,
+        system=CRITIC_SYSTEM,
         messages=[
-            {"role": "system", "content": CRITIC_SYSTEM},
             {"role": "user", "content":
                 f"SOURCE DATA Cortex used:\n{source_data}\n\n"
                 f"CORTEX PROPOSED OUTPUT:\n{proposed_output}"},
         ],
-        response_format={"type": "json_object"},
+        output_config={"format": {"type": "json_schema", "schema": VERDICT_SCHEMA}},
     )
-    usage = resp.usage
     try:
-        verdict = json.loads(resp.choices[0].message.content)
-    except (json.JSONDecodeError, TypeError):
+        if resp.stop_reason == "refusal":
+            raise ValueError("critic call was declined")
+        text = next(b.text for b in resp.content if b.type == "text")
+        verdict = json.loads(text)
+    except (StopIteration, json.JSONDecodeError, ValueError):
         verdict = {"verdict": "fail", "reasons": ["critic returned unparseable output"]}
-    verdict["_usage"] = {"prompt": usage.prompt_tokens, "completion": usage.completion_tokens}
+    verdict["_usage"] = resp.usage
     return verdict
