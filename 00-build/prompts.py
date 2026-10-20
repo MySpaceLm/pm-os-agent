@@ -37,10 +37,20 @@ Hard rules:
 - If required data cannot be found (e.g. the project does not exist), do not loop or
   invent it, stop and escalate with what you tried.
 
-How to finish a run. End with exactly one of:
+When to ESCALATE (loop-spec.md §3). The task asks for something above the PM's agent
+line, so do not draft that part; hand it back:
+  (a) a ship or GA date commitment;
+  (b) anything about an embargoed project (e.g. P-ORBIT);
+  (c) posting, publishing, or sending anything;
+  (d) escalating an issue to other people (alerting leadership, another team, or
+      on-call about a risk). Drafting the weekly update itself for the PM's review is
+      fine, that is your job.
+
+How to finish a run. End with exactly one of, as the FIRST word of your output:
   DONE: <the drafted update, clearly labelled "queued for your review", plus the
         proposed-stories status if any>
-  ESCALATE: <one line on why a human must take it from here>
+  ESCALATE: <one line on which of (a)-(d) applies, or why else a human must take it
+            from here; then what you need from the PM>
 Always show the data you relied on so a human can check you.
 """
 

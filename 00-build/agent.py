@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import anthropic
@@ -112,38 +113,49 @@ class Bounds:
 
 OUTPUT_DIR = Path(__file__).parent / "run-output"
 
+# The three exits from loop-spec.md §3. Every run ends in exactly one of them.
+DONE, STUCK, ESCALATED = "DONE", "STUCK", "ESCALATED"
+EXIT_BANNERS = {
+    DONE: "FINAL STATUS UPDATE (DONE: critic-approved draft, queued, NOT posted)",
+    STUCK: "STUCK (held for you, NOT posted): Cortex gave up",
+    ESCALATED: "ESCALATED (handed to you, NOT posted): a human must take it from here",
+}
+# Stuck (a): a required read tool can't find the project.
+REQUIRED_TOOLS = {"get_project", "get_activity"}
+
 
 def banner(text: str) -> None:
     print(f"\n{'=' * 64}\n{text}\n{'=' * 64}")
 
 
-def emit_deliverable(which: str, draft: str, *, accepted: bool,
+def emit_deliverable(which: str, draft: str, *, outcome: str,
                      reason: str, cost: float) -> None:
     """Surface AND persist Cortex's drafted status update so it can't get lost in
     the scroll-back. This is still a DRAFT held for human review, never a post,
-    there is no publish tool, and an escalated run is held on purpose.
+    there is no publish tool.
 
-    Runs on every exit: an accepted pass prints the FINAL update; a bound trip or
-    escalation prints the LAST draft it managed to write plus why it was held.
+    Runs on every exit, labelled with which of the three exits fired (DONE, STUCK,
+    ESCALATED), and appends one line to run-output/run-log.jsonl.
     """
-    banner("FINAL STATUS UPDATE (draft, validator-approved, NOT posted)" if accepted
-           else "LAST DRAFT (held, NOT posted, escalated to a human)")
+    banner(EXIT_BANNERS[outcome])
     if draft.strip():
         print(draft.rstrip())
     else:
         print("(Cortex stopped before it produced a draft, nothing to show.)")
-    if not accepted:
-        print(f"\nWhy it was held: {reason}")
+    print(f"\nExit: {outcome}, {reason}")
 
+    OUTPUT_DIR.mkdir(exist_ok=True)
     if draft.strip():
-        OUTPUT_DIR.mkdir(exist_ok=True)
         out = OUTPUT_DIR / f"status-update-{which}.md"
-        state = "accepted by validator" if accepted else "HELD, escalated"
         out.write_text(
-            f"<!-- Cortex draft, {state}; NOT posted. Run cost ~ ${cost:.4f}. -->\n"
+            f"<!-- Cortex draft, {outcome}; NOT posted. Run cost ~ ${cost:.4f}. -->\n"
             f"<!-- {reason} -->\n\n{draft.rstrip()}\n", encoding="utf-8")
         print(f"\nSaved draft -> {out.relative_to(Path(__file__).parent)}  "
               f"(for your review, nothing was posted)")
+    with open(OUTPUT_DIR / "run-log.jsonl", "a", encoding="utf-8") as log:
+        log.write(json.dumps({"time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                              "task": which, "outcome": outcome, "reason": reason,
+                              "cost_usd": round(cost, 4)}) + "\n")
 
 
 def run(which: str = "happy") -> None:
@@ -166,9 +178,8 @@ def run(which: str = "happy") -> None:
 
     for step in range(1, MAX_ITERATIONS + 1):
         if bounds.over_cap():
-            reason = f"cost cap ${COST_CAP_USD} hit at ${bounds.cost:.4f}"
-            banner(f"BOUND TRIPPED, {reason}. Halting and escalating to a human.")
-            emit_deliverable(which, last_draft, accepted=False,
+            reason = f"stuck (d): cost cap ${COST_CAP_USD} hit at ${bounds.cost:.4f}"
+            emit_deliverable(which, last_draft, outcome=STUCK,
                              reason=reason, cost=bounds.cost)
             return
 
@@ -179,15 +190,15 @@ def run(which: str = "happy") -> None:
         messages.append({"role": "assistant", "content": resp.content})
 
         if resp.stop_reason == "refusal":
-            reason = "model declined the request (refusal)"
-            banner(f"REFUSAL, {reason}. Halting and escalating to a human.")
-            emit_deliverable(which, last_draft, accepted=False,
-                             reason=reason, cost=bounds.cost)
+            emit_deliverable(which, last_draft, outcome=ESCALATED,
+                             reason="model declined the request (refusal)",
+                             cost=bounds.cost)
             return
 
         tool_calls = [b for b in resp.content if b.type == "tool_use"]
         if tool_calls:
             tool_results = []
+            missing = []
             for call in tool_calls:
                 fn = call.name
                 args = call.input or {}
@@ -195,8 +206,16 @@ def run(which: str = "happy") -> None:
                 source_log.append(f"{fn}({args}) -> {json.dumps(result)}")
                 print(f"\n[step {step}] TOOL {fn}({args})")
                 print(f"          -> {json.dumps(result)[:300]}")
+                if fn in REQUIRED_TOOLS and result.get("error") == "project_not_found":
+                    missing.append(f"{fn}({args}) -> project_not_found")
                 tool_results.append({"type": "tool_result", "tool_use_id": call.id,
                                      "content": json.dumps(result)})
+            if missing:
+                # Stuck (a), detected by the loop, not the model: don't guess, stop.
+                emit_deliverable(which, last_draft, outcome=STUCK,
+                                 reason="stuck (a): required data missing: " + "; ".join(missing),
+                                 cost=bounds.cost)
+                return
             messages.append({"role": "user", "content": tool_results})
             continue
 
@@ -212,19 +231,23 @@ def run(which: str = "happy") -> None:
         print(json.dumps({k: v for k, v in verdict.items() if k != "_usage"}, indent=2))
 
         if verdict["verdict"] == "pass":
+            if proposed.lstrip().startswith("ESCALATE:"):
+                first_line = proposed.strip().splitlines()[0]
+                emit_deliverable(which, proposed, outcome=ESCALATED,
+                                 reason=f"Cortex escalated: {first_line[len('ESCALATE:'):].strip()}",
+                                 cost=bounds.cost)
+                return
             banner(f"HITL CHECKPOINT, status update + any proposed stories queued for "
                    f"your review. Nothing posted, no commitments made. "
                    f"Run cost ≈ ${bounds.cost:.4f}")
-            emit_deliverable(which, proposed, accepted=True,
-                             reason="validator passed", cost=bounds.cost)
+            emit_deliverable(which, proposed, outcome=DONE,
+                             reason="success: critic passed, draft queued", cost=bounds.cost)
             return
 
         if revisions >= MAX_REVISIONS:
-            reason = f"validator rejected {MAX_REVISIONS}x (revision cap)"
-            banner(f"REVISION CAP hit ({MAX_REVISIONS}). Escalating to a human "
-                   f"instead of looping. Run cost ≈ ${bounds.cost:.4f}")
-            emit_deliverable(which, last_draft, accepted=False,
-                             reason=reason, cost=bounds.cost)
+            emit_deliverable(which, last_draft, outcome=STUCK,
+                             reason=f"stuck (b): critic rejected {MAX_REVISIONS} revisions "
+                                    f"(revision cap)", cost=bounds.cost)
             return
 
         revisions += 1
@@ -233,10 +256,8 @@ def run(which: str = "happy") -> None:
                          "A validator rejected that for these reasons: "
                          f"{verdict['reasons']}. Fix it or escalate."})
 
-    banner(f"MAX ITERATIONS ({MAX_ITERATIONS}) reached without finishing. "
-           f"Escalating. Run cost ≈ ${bounds.cost:.4f}")
-    emit_deliverable(which, last_draft, accepted=False,
-                     reason=f"max iterations ({MAX_ITERATIONS}) reached",
+    emit_deliverable(which, last_draft, outcome=STUCK,
+                     reason=f"stuck (c): {MAX_ITERATIONS} iterations without a passing draft",
                      cost=bounds.cost)
 
 
