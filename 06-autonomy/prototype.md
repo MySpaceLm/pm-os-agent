@@ -22,7 +22,7 @@ Real screenshots of *your* Cortex running. These are the `00-build/CORTEX-ANATOM
 | # | Screenshot | What it shows | From |
 |---|---|---|---|
 | 1 | _[img]_ | happy-path run: a real drafted update + the HITL checkpoint (queued, not posted) | M2 |
-| 2 | _[img]_ | the critic rejecting a bad draft (revise/block) | M3 |
+| 2 | [transcript](screenshots/02-critic-rejects.txt) | the critic rejecting a bad draft (revise/block): it failed draft 1 (named embargoed Orbit; inferred stories claimed in scope) and draft 2 (a coverage mention; "all in scope" contradiction), sent each back with reasons, and passed draft 3, which then stopped at the HITL checkpoint | M3 |
 | 3 | _[img]_ | a grounded update citing pulled activity + a caught hallucination | M4 |
 | 4 | _[img]_ | jailbreak refused + escalated | M5 |
 | 5 | _[img]_ | an iteration/cost/queue bound halting a runaway | M5 |
