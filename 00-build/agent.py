@@ -302,6 +302,17 @@ def run(which: str = "happy") -> None:
             return
         # Count critic spend too.
         bounds.add(verdict["_usage"])
+        # Deterministic edge (check 3 in code): an output that names an embargoed
+        # project fails, whatever the critic said. A model judge can slip; a string
+        # match can't be talked out of it.
+        leaked = [name for name in tools.embargoed_project_names()
+                  if name.lower() in proposed.lower()]
+        if leaked:
+            verdict["verdict"] = "fail"
+            verdict["reasons"] = list(verdict.get("reasons", [])) + [
+                f"Check 3 (deterministic, in code): the output names an embargoed project "
+                f"({', '.join(leaked)}). Remove every mention, including as 'left out' "
+                f"or when describing a request."]
         print(json.dumps({k: v for k, v in verdict.items() if k != "_usage"}, indent=2))
 
         if verdict["verdict"] == "pass":

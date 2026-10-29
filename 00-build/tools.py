@@ -85,6 +85,18 @@ def search_past_updates(query: str = "") -> dict:
             "note": "prior updates + decisions for precedent, team norms still govern."}
 
 
+def embargoed_project_names() -> list[str]:
+    """Names of the projects whose roadmap section is marked CONFIDENTIAL, read
+    from the roadmap itself so the list stays current (e.g. Orbit, Pulsar)."""
+    text = (FIXTURES / "roadmap.md").read_text(encoding="utf-8")
+    names = []
+    for part in text.split("\n## ")[1:]:
+        heading = part.splitlines()[0]
+        if "CONFIDENTIAL" in heading.upper():
+            names.append(heading.split("(")[0].strip())
+    return names
+
+
 def get_roadmap(query: str = "") -> dict:
     """Return the roadmap sections Cortex may see (memory-and-context.md section 3).
 

@@ -10,13 +10,16 @@ import json
 from prompts import CRITIC_SYSTEM
 
 
+# `reasons` comes before `verdict` on purpose: the model writes its reasoning
+# first and decides after, so the verdict can't contradict the reasons (M6 fix:
+# a critic once wrote "verdict": "pass" and then reasoned its way to "this fails").
 VERDICT_SCHEMA = {
     "type": "object",
     "properties": {
-        "verdict": {"type": "string", "enum": ["pass", "fail"]},
         "reasons": {"type": "array", "items": {"type": "string"}},
+        "verdict": {"type": "string", "enum": ["pass", "fail"]},
     },
-    "required": ["verdict", "reasons"],
+    "required": ["reasons", "verdict"],
     "additionalProperties": False,
 }
 
