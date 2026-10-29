@@ -23,7 +23,7 @@ Real screenshots of *your* Cortex running. These are the `00-build/CORTEX-ANATOM
 |---|---|---|---|
 | 1 | _[img]_ | happy-path run: a real drafted update + the HITL checkpoint (queued, not posted) | M2 |
 | 2 | [transcript](screenshots/02-critic-rejects.txt) | the critic rejecting a bad draft (revise/block): it failed draft 1 (named embargoed Orbit; inferred stories claimed in scope) and draft 2 (a coverage mention; "all in scope" contradiction), sent each back with reasons, and passed draft 3, which then stopped at the HITL checkpoint | M3 |
-| 3 | _[img]_ | a grounded update citing pulled activity + a caught hallucination | M4 |
+| 3 | [grounded](screenshots/03a-grounded.txt) · [withheld source](screenshots/03b-withheld-activity.txt) | a grounded update citing pulled activity + a caught hallucination. **(a)** On the ingested data pack, every claim traces to a pull: 43% vs 41%, PRs #820/#823 and issue #825 from `get_activity`; critic passed first time. **(b)** With `get_activity` withheld, Cortex invented nothing: it flagged "no tool returns merged PRs, open issues or Sev-1s," asked me to confirm no Sev-1 before sending, and took the metric only from the roadmap, saying so. The critic rejected two drafts for naming embargoed Orbit/Pulsar (the roadmap leak path) and passed the third | M4 |
 | 4 | _[img]_ | jailbreak refused + escalated | M5 |
 | 5 | _[img]_ | an iteration/cost/queue bound halting a runaway | M5 |
 | 6 | _[img]_ | end-to-end run | M6 |
