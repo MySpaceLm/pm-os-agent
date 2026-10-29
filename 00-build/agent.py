@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -50,7 +51,11 @@ EFFORT = os.environ.get("CORTEX_EFFORT", "medium")  # low | medium | high | xhig
 MAX_ITERATIONS = int(os.environ.get("CORTEX_MAX_ITERATIONS", "8"))
 MAX_REVISIONS = int(os.environ.get("CORTEX_MAX_REVISIONS", "2"))
 COST_CAP_USD = float(os.environ.get("CORTEX_COST_CAP_USD", "0.50"))
-MAX_QUEUE_ITEMS = int(os.environ.get("CORTEX_MAX_QUEUE_ITEMS", "10"))
+DAILY_CAP_USD = float(os.environ.get("CORTEX_DAILY_CAP_USD", "5.00"))  # all runs, per UTC day
+TIMEOUT_S = float(os.environ.get("CORTEX_TIMEOUT_S", "90"))  # wall clock, per run
+MAX_QUEUE_ITEMS = int(os.environ.get("CORTEX_MAX_QUEUE_ITEMS", "10"))  # stories, per run
+# Kill switch: set CORTEX_KILL=1, or create this file, and every run halts at its next step.
+KILL_FILE = Path(__file__).parent / "KILL"
 # Rough $ per 1M tokens for your chosen model, set to match its pricing.
 PRICE_IN = float(os.environ.get("CORTEX_PRICE_IN_PER_M", "2.00"))
 PRICE_OUT = float(os.environ.get("CORTEX_PRICE_OUT_PER_M", "10.00"))
@@ -113,6 +118,27 @@ class Bounds:
 
 OUTPUT_DIR = Path(__file__).parent / "run-output"
 
+
+def spent_today() -> float:
+    """Total logged spend for today (UTC), across every run, from run-log.jsonl."""
+    log = OUTPUT_DIR / "run-log.jsonl"
+    if not log.exists():
+        return 0.0
+    today = datetime.now(timezone.utc).date().isoformat()
+    total = 0.0
+    for line in log.read_text(encoding="utf-8").splitlines():
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if entry.get("time", "").startswith(today):
+            total += float(entry.get("cost_usd", 0))
+    return total
+
+
+def kill_engaged() -> bool:
+    return os.environ.get("CORTEX_KILL") == "1" or KILL_FILE.exists()
+
 # The three exits from loop-spec.md §3. Every run ends in exactly one of them.
 DONE, STUCK, ESCALATED = "DONE", "STUCK", "ESCALATED"
 EXIT_BANNERS = {
@@ -129,7 +155,7 @@ def banner(text: str) -> None:
 
 
 def emit_deliverable(which: str, draft: str, *, outcome: str,
-                     reason: str, cost: float) -> None:
+                     reason: str, cost: float, save_draft: bool = True) -> None:
     """Surface AND persist Cortex's drafted status update so it can't get lost in
     the scroll-back. This is still a DRAFT held for human review, never a post,
     there is no publish tool.
@@ -145,7 +171,7 @@ def emit_deliverable(which: str, draft: str, *, outcome: str,
     print(f"\nExit: {outcome}, {reason}")
 
     OUTPUT_DIR.mkdir(exist_ok=True)
-    if draft.strip():
+    if draft.strip() and save_draft:
         out = OUTPUT_DIR / f"status-update-{which}.md"
         out.write_text(
             f"<!-- Cortex draft, {outcome}; NOT posted. Run cost ~ ${cost:.4f}. -->\n"
@@ -159,7 +185,10 @@ def emit_deliverable(which: str, draft: str, *, outcome: str,
 
 
 def run(which: str = "happy") -> None:
-    client = anthropic.Anthropic()
+    # Timeout bound: no single model call may outlive the run's budget, and the
+    # loop below checks the wall clock before every step.
+    client = anthropic.Anthropic(timeout=TIMEOUT_S, max_retries=1)
+    started = time.monotonic()
     bounds = Bounds()
     task = tools.get_task(which)
     if "error" in task:
@@ -175,16 +204,41 @@ def run(which: str = "happy") -> None:
     source_log: list[str] = [task["body"]]
     revisions = 0
     last_draft = ""
+    queued = 0  # stories queued so far in THIS run (the per-run commitment cap)
+    daily_before = spent_today()
 
     for step in range(1, MAX_ITERATIONS + 1):
+        if kill_engaged():
+            # Kill switch: halt now and discard what this run queued; keep no draft.
+            emit_deliverable(which, last_draft, outcome=STUCK, save_draft=False,
+                             reason=f"kill switch engaged; {queued} queued stories discarded",
+                             cost=bounds.cost)
+            return
+        if time.monotonic() - started >= TIMEOUT_S:
+            emit_deliverable(which, last_draft, outcome=STUCK,
+                             reason=f"stuck (e): timeout, {TIMEOUT_S:.0f}s per run",
+                             cost=bounds.cost)
+            return
         if bounds.over_cap():
             reason = f"stuck (d): cost cap ${COST_CAP_USD} hit at ${bounds.cost:.4f}"
             emit_deliverable(which, last_draft, outcome=STUCK,
                              reason=reason, cost=bounds.cost)
             return
+        if daily_before + bounds.cost >= DAILY_CAP_USD:
+            emit_deliverable(which, last_draft, outcome=STUCK,
+                             reason=f"stuck (d): daily cap ${DAILY_CAP_USD:.2f} reached "
+                                    f"(${daily_before + bounds.cost:.4f} spent today)",
+                             cost=bounds.cost)
+            return
 
-        resp = call_model(client, system=CORTEX_SYSTEM, messages=messages,
-                          tools=TOOL_SCHEMAS)
+        try:
+            resp = call_model(client, system=CORTEX_SYSTEM, messages=messages,
+                              tools=TOOL_SCHEMAS)
+        except anthropic.APITimeoutError:
+            emit_deliverable(which, last_draft, outcome=STUCK,
+                             reason=f"stuck (e): model call timed out after {TIMEOUT_S:.0f}s",
+                             cost=bounds.cost)
+            return
         bounds.add(resp.usage)
         # Keep the whole assistant turn (thinking blocks included) in the history.
         messages.append({"role": "assistant", "content": resp.content})
@@ -202,7 +256,21 @@ def run(which: str = "happy") -> None:
             for call in tool_calls:
                 fn = call.name
                 args = call.input or {}
-                result = tools.TOOLS[fn](**args)
+                if fn == "propose_stories":
+                    asked = args.get("stories") or []
+                    asked = [asked] if isinstance(asked, str) else asked
+                    if queued + len(asked) > MAX_QUEUE_ITEMS:
+                        # Per-run commitment cap: re-queuing can't stack past the cap.
+                        result = {"status": "rejected", "error": "run_exceeds_queue_cap",
+                                  "already_queued_this_run": queued,
+                                  "requested": len(asked), "cap_items": MAX_QUEUE_ITEMS,
+                                  "action": "escalate to a human; do not re-queue"}
+                    else:
+                        result = tools.TOOLS[fn](**args)
+                        if result.get("status") == "queued_for_approval":
+                            queued += result.get("count", 0)
+                else:
+                    result = tools.TOOLS[fn](**args)
                 source_log.append(f"{fn}({args}) -> {json.dumps(result)}")
                 print(f"\n[step {step}] TOOL {fn}({args})")
                 print(f"          -> {json.dumps(result)[:300]}")
@@ -225,7 +293,13 @@ def run(which: str = "happy") -> None:
         print(f"\n[step {step}] PROPOSED OUTPUT:\n{proposed}")
 
         banner("CRITIC, independent validation")
-        verdict = review(client, call_model, proposed, "\n".join(source_log))
+        try:
+            verdict = review(client, call_model, proposed, "\n".join(source_log))
+        except anthropic.APITimeoutError:
+            emit_deliverable(which, last_draft, outcome=STUCK,
+                             reason=f"stuck (e): critic call timed out after {TIMEOUT_S:.0f}s",
+                             cost=bounds.cost)
+            return
         # Count critic spend too.
         bounds.add(verdict["_usage"])
         print(json.dumps({k: v for k, v in verdict.items() if k != "_usage"}, indent=2))
