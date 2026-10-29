@@ -86,12 +86,28 @@ def search_past_updates(query: str = "") -> dict:
 
 
 def get_roadmap(query: str = "") -> dict:
-    """Return the roadmap. Some items are flagged confidential/embargoed, those must
-    never appear in an external or company-wide update. `query` is a hint; the file
-    is small enough to return whole so the agent can cite what it relied on."""
-    text = (FIXTURES / "roadmap.md").read_text()
-    return {"query": query, "roadmap": text,
-            "warning": "items marked CONFIDENTIAL must not be shared outside the core team."}
+    """Return the roadmap sections Cortex may see (memory-and-context.md section 3).
+
+    Grading: sections marked CONFIDENTIAL are dropped here, in the tool, so an
+    embargoed item never reaches the drafter's context at all; the critic's
+    check 3 is only the backstop. Routing: if `query` names a project (by ID or
+    name), only that project's section is returned."""
+    text = (FIXTURES / "roadmap.md").read_text(encoding="utf-8")
+    # "## " headings start sections; everything before the first one is file
+    # commentary (which can itself name embargoed items), so it is never returned.
+    sections = ["## " + part for part in text.split("\n## ")[1:]]
+    allowed = [s for s in sections
+               if "CONFIDENTIAL" not in s.splitlines()[0].upper()]
+
+    q = (query or "").lower()
+    names = {pid.lower(): p.get("name", "").split(" (")[0].lower()
+             for pid, p in _load_json("projects.json").items()}
+    wanted = {name for pid, name in names.items() if pid in q or (name and name in q)}
+    routed = [s for s in allowed
+              if any(name in s.splitlines()[0].lower() for name in wanted)]
+
+    return {"query": query, "roadmap": "\n\n".join(routed or allowed).strip(),
+            "note": "confidential items are filtered out by this tool."}
 
 
 def get_norms(query: str = "") -> dict:
