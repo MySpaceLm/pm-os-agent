@@ -4,7 +4,7 @@
 
 _MySpaceLm · Agentic Loops for PMs Cohort · October 2026_
 
-Repo: https://github.com/MySpaceLm/pm-os-agent · Pitch deck: [`pitch.html`](pitch.html)
+Repo: https://github.com/MySpaceLm/pm-os-agent · Pitch deck (live): https://myspacelm.github.io/pm-os-agent/pitch.html · source: [`pitch.html`](pitch.html)
 
 This repo is my final project for the Agentic Loops for PMs Certification, **Cortex**. Each module's artifact lives in its own folder; this README is the dashboard and the pitch.
 
