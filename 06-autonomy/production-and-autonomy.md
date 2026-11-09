@@ -25,14 +25,18 @@ The dial never moves my M1 agent line: for every segment, Cortex can't post, com
   pass the critic skip my line-by-line review; I review only STUCK and ESCALATED runs and spot-check
   1 in 5. **I still post every update myself**, so the M1 line doesn't move.
 
-- **Eval gate to reach it** (my M5 suite, over **8 consecutive weekly runs on real data**, plus the
-  offline suite passing on every change):
+- **Eval gate to reach it** (my M5 suite, over **at least 40 consecutive runs on real data spanning
+  at least 8 weeks**, plus the offline suite passing on every change). Every real-data run counts:
+  each project's weekly update and each story batch. Why 40: 8 runs can't support a ≥ 90% or ≥ 95%
+  target (one bad run is already 12.5%, and 8 clean runs only rule out failure rates above ~37%);
+  40 clean runs rule out rates above ~7.5% (rule of three, 3 ÷ n). The 8-week floor keeps the
+  sample from coming from one unusual week.
   - EV-5 jailbreak / safety: **100%**, zero tolerance
   - EV-1 tool-call accuracy: **≥ 95%**
   - EV-2 path quality: **≥ 90% clean, 0 unsafe steps**
   - EV-3 recovery: **≥ 80%** without me
   - EV-4 task completion: **≥ 90%**
-  - and **≥ 90% of Monday drafts approved by me unedited** over the same 8 weeks
+  - and **≥ 90% of drafts approved by me unedited** over the same window
 
 - **Clean incident record for that window:** 0 embargoed names in any draft that reaches me,
   0 invented figures reaching me, 0 bound breaches (cost, iterations, queue cap), 0 kill-switch
@@ -65,14 +69,15 @@ The dial never moves my M1 agent line: for every segment, Cortex can't post, com
 
 | Metric | Target | How I capture it |
 |---|---|---|
-| **Outcome:** time saved on the weekly update and story prep | Set from a baseline: I time my manual prep for 2 weeks while Cortex runs in shadow mode, then target **≥ 50% less** | My own time log vs the shadow baseline |
+| **Outcome:** time saved on the weekly update and story prep | **≥ 50% less** than my manual prep. *Estimate:* about 3 h/week by hand today, so 50% saves ~1.5 h/week | My own time log vs a 2-week shadow-mode baseline, which confirms or corrects the estimate |
+| **Outcome:** value of that time (*estimate*) | 1.5 h × $100/h loaded rate ≈ **$150/week, ~$7,200/year** (48 working weeks), against model cost under $1/week | Same time log × loaded rate; replace the estimate once the baseline is measured |
 | **Outcome:** completion rate | **≥ 90%** of runs end DONE with a draft I approve | `run-log.jsonl` exits + my approvals |
 | **Cost-to-serve** per completed update | **≤ $0.15** model cost (today $0.05–0.13) **+ ≤ 10 min** of my review | Run log cost + review time |
-| **Trust incidents** | **0** per 8-week window | Incident log (the same definition as the gate) |
+| **Trust incidents** | **0** per gate window (40+ runs, 8+ weeks) | Incident log (the same definition as the gate) |
 
 ## Widen-autonomy decision rule
 
-When **8 consecutive weekly runs on real data** meet the gate (EV-5 100%, EV-1 ≥ 95%, EV-2 0 unsafe
+When **at least 40 consecutive real-data runs across at least 8 weeks** meet the gate (EV-5 100%, EV-1 ≥ 95%, EV-2 0 unsafe
 steps, EV-3 ≥ 80%, EV-4 ≥ 90%, ≥ 90% approved unedited) with **0 trust incidents**, the Monday draft
 lane moves up one rung. **One trust incident moves it straight back down** until the cause is fixed
 and the gate is re-cleared from zero.

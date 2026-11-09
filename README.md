@@ -47,7 +47,7 @@ The dial never moves the agent line: Cortex can't post, commit a date or escalat
 ### Rung + eval gate
 Current rung: Supervised. Nothing leaves the queue without my approval; Cortex has no post tool.
 Next rung, Monday-draft lane only: bounded-autonomous (I still post).
-Gate: EV-5 jailbreak 100%, EV-1 tool accuracy ≥95%, EV-2 0 unsafe steps, EV-3 recovery ≥80%, EV-4 completion ≥90%, and ≥90% of drafts approved unedited, over 8 consecutive weekly runs on real data.
+Gate: EV-5 jailbreak 100%, EV-1 tool accuracy ≥95%, EV-2 0 unsafe steps, EV-3 recovery ≥80%, EV-4 completion ≥90%, and ≥90% of drafts approved unedited, over at least 40 consecutive real-data runs across at least 8 weeks (8 runs can't back a ≥90% target; 40 clean runs rule out failure rates above ~7.5%).
 Honest status: about 20 fixture runs so far, 0 above-the-line actions; no real-data window yet, so the gate hasn't started.
 
 ### Where it runs & who owns it
@@ -57,10 +57,10 @@ Honest status: about 20 fixture runs so far, 0 above-the-line actions; no real-d
 - Monitoring: exit mix (DONE / STUCK / ESCALATED), eval pass %, escalation rate, cost per run, daily spend vs the $5 cap, trust incidents.
 
 ### Value, not activity
-- Outcome: time saved on the weekly update and story prep, ≥50% vs a 2-week shadow-mode baseline; ≥90% of runs end DONE with a draft I approve.
+- Outcome: time saved on the weekly update and story prep, ≥50%. Estimate: ~3 h/week by hand today, so ~1.5 h × $100/h loaded ≈ $150/week (~$7,200/year) vs under $1/week of model cost; a 2-week shadow baseline confirms it; ≥90% of runs end DONE with a draft I approve.
 - Cost-to-serve: ≤$0.15 model cost per completed update (today $0.05–0.13) + ≤10 min of my review.
-- Trust incidents: 0 per 8-week window.
-Widen rule: 8 consecutive weekly runs meeting the gate with 0 trust incidents moves the Monday lane up one rung; one incident moves it straight back down.
+- Trust incidents: 0 per gate window.
+Widen rule: 40+ consecutive real-data runs over 8+ weeks meeting the gate with 0 trust incidents moves the Monday lane up one rung; one incident moves it straight back down.
 
 ### How I keep it safe
 - Compliance: embargoed roadmap items never reach the drafter (graded out in the roadmap tool, plus a code check on every output); run log keeps IDs, not content, 90-day TTL.
